@@ -1,0 +1,10 @@
+{
+  "name": "798艺术区AI计调助手",
+  "description": "解决798艺术区接团业务的需求整理、报价核算及团期变更，支持容量冲突自动分团逻辑。",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "意图识别",
+    "报价核算",
+    "分团调度"
+  ]
+}
