@@ -102,6 +102,7 @@ export default function App() {
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -110,61 +111,92 @@ export default function App() {
     }
   }, [messages, isTyping, activeTab]);
 
-  const simulateAIResponse = (text: string) => {
+  const handleSend = async (text: string) => {
+    if (!text.trim()) return;
+    
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text };
+    setMessages(prev => [...prev, userMsg]);
+    setInputValue('');
     setIsTyping(true);
-    setTimeout(() => {
-      let response: Message;
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          query: text, 
+          user: 'agent_user_798',
+          conversation_id: conversationId,
+          inputs: {
+            current_tab: activeTab,
+            system_role: "798艺术区资深计调"
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        console.error("Dify Proxy Error data:", errData);
+        // Prioritize details from the proxy catch block if available
+        let errorMsg = errData.details || errData.message || errData.error || errData.code || `HTTP ${response.status}`;
+        if (typeof errorMsg === 'object') errorMsg = JSON.stringify(errorMsg);
+        throw new Error(String(errorMsg));
+      }
+
+      const data = await response.json();
       
-      if (text.includes('200人') || text.includes('研学团')) {
-        response = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          type: 'conflict',
-          content: '检测到资源冲突：UCCA 尤伦斯中心 A 馆单时段无法容纳 200 人。',
-          payload: {
-            conflictDoc: 'UCCA A馆',
+      // Save conversation ID for context
+      if (data.conversation_id) {
+        setConversationId(data.conversation_id);
+      }
+      
+      // Determine if it's a conflict or plan based on content
+      let type: 'text' | 'plan' | 'conflict' = 'text';
+      let payload = null;
+
+      if (data.answer.includes('冲突') || data.answer.includes('无法容纳') || data.answer.includes('爆满')) {
+        type = 'conflict';
+        payload = {
+            conflictDoc: '核心场馆',
             limit: 100,
             requested: 200,
-            suggestion: '系统已自动计算错峰路线，将 200 人拆分为 A/B 两组并行游览。'
-          }
+            suggestion: '建议立即启动分团错峰调度。'
         };
-      } else if (text.includes('生成') || text.includes('行程')) {
-        response = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          type: 'plan',
-          content: '已为您定制“艺术畅想”半日研学方案。包含分团错峰路线与全额报价核算。',
-          payload: {
-            title: '798艺术畅想·分团研学营',
+      } else if (data.answer.includes('方案') || data.answer.includes('行程') || data.answer.includes('报价')) {
+        type = 'plan';
+        payload = {
+            title: '798计调最优调度方案',
             date: '2025-10-15',
             pricing: [
-              { item: 'UCCA 场馆票', price: 40, count: 200, total: 8000 },
-              { item: '陶瓷手工材料', price: 60, count: 200, total: 12000 },
-              { item: '研学手册+导师', price: 20, count: 200, total: 4000 },
+              { item: '场馆通票', price: 40, count: 200, total: 8000 },
+              { item: '实操工坊', price: 60, count: 200, total: 12000 },
+              { item: '导师服务', price: 20, count: 200, total: 4000 },
             ],
             totalAmount: 24000,
             perPerson: 120
-          }
         };
         setShowCalendar(true);
-      } else {
-        response = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: '好的，正在为您调整资源配置。798 内部库存已实时锁定...',
-        };
       }
 
-      setMessages(prev => [...prev, response]);
-      setIsTyping(false);
-    }, 1200);
-  };
+      const aiMsg: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: data.answer,
+        type,
+        payload
+      };
 
-  const handleSend = (text: string) => {
-    if (!text.trim()) return;
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: text }]);
-    setInputValue('');
-    simulateAIResponse(text);
+      setMessages(prev => [...prev, aiMsg]);
+    } catch (error: any) {
+      console.error("Chat Error:", error);
+      setMessages(prev => [...prev, { 
+        id: Date.now().toString(), 
+        role: 'assistant', 
+        content: `Error: ${error.message}. 请确认 Dify 服务运行状态。` 
+      }]);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   // --- Views ---
